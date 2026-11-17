@@ -673,6 +673,7 @@ func (sd *shardDelegator) Search(ctx context.Context, req *querypb.SearchRequest
 				ReqID:                   req.GetReq().GetReqID(),
 				DbID:                    req.GetReq().GetDbID(),
 				CollectionID:            req.GetReq().GetCollectionID(),
+				SchemaVersion:           req.GetReq().GetSchemaVersion(),
 				PartitionIDs:            subReq.GetPartitionIDs(),
 				Dsl:                     subReq.GetDsl(),
 				PlaceholderGroup:        subReq.GetPlaceholderGroup(),
@@ -681,9 +682,11 @@ func (sd *shardDelegator) Search(ctx context.Context, req *querypb.SearchRequest
 				OutputFieldsId:          req.GetReq().GetOutputFieldsId(),
 				MvccTimestamp:           req.GetReq().GetMvccTimestamp(),
 				GuaranteeTimestamp:      req.GetReq().GetGuaranteeTimestamp(),
+				ConsistencyLevel:        req.GetReq().GetConsistencyLevel(),
 				TimeoutTimestamp:        req.GetReq().GetTimeoutTimestamp(),
 				Nq:                      subReq.GetNq(),
 				Topk:                    subReq.GetTopk(),
+				Offset:                  subReq.GetOffset(),
 				MetricType:              subReq.GetMetricType(),
 				IgnoreGrowing:           subReq.GetIgnoreGrowing(),
 				Username:                req.GetReq().GetUsername(),
@@ -693,13 +696,24 @@ func (sd *shardDelegator) Search(ctx context.Context, req *querypb.SearchRequest
 				FieldId:                 subReq.GetFieldId(),
 				GroupByFieldIds:         req.GetReq().GetGroupByFieldIds(),
 				IsTopkReduce:            req.GetReq().GetIsTopkReduce(),
+				IsRecallEvaluation:      req.GetReq().GetIsRecallEvaluation(),
 				IsIterator:              req.GetReq().GetIsIterator(),
 				CollectionTtlTimestamps: req.GetReq().GetCollectionTtlTimestamps(),
 				EntityTtlPhysicalTime:   req.GetReq().GetEntityTtlPhysicalTime(),
 				AnalyzerName:            subReq.GetAnalyzerName(),
-				PkFilter:                common.PkFilterNoPkFilter, // hybrid search sub-requests rarely have PK predicates, skip unmarshal
-				SearchType:              subReq.GetSearchType(),
+				// The Proxy aggregates the per-sub-request PK hints. A positive
+				// parent hint only means "at least one sub-request is
+				// optimizable"; the delegator still validates each plan before
+				// pruning, so a sibling without a PK predicate is left intact.
+				PkFilter:   req.GetReq().GetPkFilter(),
+				SearchType: subReq.GetSearchType(),
 			}
+			// Advanced sub-searches run concurrently. Segment pruning mutates the
+			// pinned snapshot in place, so each sub-search must receive its own
+			// copy: a selective filter in one branch must never remove segments
+			// required by a sibling branch.
+			subSealed := cloneSnapshotItems(sealed)
+			subGrowing := append([]SegmentEntry(nil), growing...)
 			future := conc.Go(func() (*internalpb.SearchResults, error) {
 				searchReq := &querypb.SearchRequest{
 					Req:             newRequest,
@@ -712,7 +726,7 @@ func (sd *shardDelegator) Search(ctx context.Context, req *querypb.SearchRequest
 					searchReq.GetReq().MvccTimestamp = tSafe
 				}
 				searchReq.Req.CollectionTtlTimestamps = req.GetReq().GetCollectionTtlTimestamps()
-				results, err := sd.search(ctx, searchReq, sealed, growing, sealedRowCount)
+				results, err := sd.search(ctx, searchReq, subSealed, subGrowing, sealedRowCount)
 				if err != nil {
 					return nil, err
 				}
@@ -749,6 +763,22 @@ func (sd *shardDelegator) Search(ctx context.Context, req *querypb.SearchRequest
 		return nil, err
 	}
 	return results, nil
+}
+
+// cloneSnapshotItems makes the per-sub-search segment lists independent while
+// preserving the pinned distribution version owned by the caller.
+func cloneSnapshotItems(items []SnapshotItem) []SnapshotItem {
+	if items == nil {
+		return nil
+	}
+	cloned := make([]SnapshotItem, len(items))
+	for i, item := range items {
+		cloned[i] = SnapshotItem{
+			NodeID:   item.NodeID,
+			Segments: append([]SegmentEntry(nil), item.Segments...),
+		}
+	}
+	return cloned
 }
 
 func (sd *shardDelegator) QueryStream(ctx context.Context, req *querypb.QueryRequest, srv streamrpc.QueryStreamServer) error {

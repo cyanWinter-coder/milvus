@@ -706,6 +706,10 @@ func (t *SearchTask) initAdvancedSearchRequest(ctx context.Context) error {
 	t.queryInfos = make([]*planpb.QueryInfo, len(t.request.GetSubReqs()))
 	t.hybridSubSearchInfos = make([]hybridSubSearchInfo, len(t.request.GetSubReqs()))
 	t.hybridElementLevel = false
+	// Segment filtering needs one hint for the whole advanced request. A
+	// sub-request may carry its own scalar predicate, so the parent must not
+	// claim "no PK filter" just because another sub-request has none.
+	t.PkFilter = common.PkFilterNoPkFilter
 	queryFieldIDs := []int64{}
 	// families collects the retrieval families of the subrequests; the
 	// combination is marked once the loop has seen them all.
@@ -733,6 +737,9 @@ func (t *SearchTask) initAdvancedSearchRequest(ctx context.Context) error {
 		)
 		if err != nil {
 			return err
+		}
+		if checkSegmentFilter(plan) == common.PkFilterHasPkFilter {
+			t.PkFilter = common.PkFilterHasPkFilter
 		}
 		if queryInfo.GetSearchIteratorV2Info() != nil {
 			return merr.WrapErrParameterInvalid("", "",

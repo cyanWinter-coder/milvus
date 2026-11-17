@@ -32,6 +32,7 @@ func TestBuildAndUpdateSubSearchRequest(t *testing.T) {
 		MvccTimestamp:           14,
 		IsAdvanced:              true,
 		CollectionTtlTimestamps: 17,
+		PkFilter:                common.PkFilterHasPkFilter,
 	}
 	sub := &internalpb.SubSearchRequest{
 		Dsl:                "dsl",
@@ -64,7 +65,7 @@ func TestBuildAndUpdateSubSearchRequest(t *testing.T) {
 	assert.Equal(t, sub.GetSerializedExprPlan(), req.GetSerializedExprPlan())
 	assert.Equal(t, sub.GetPlaceholderGroup(), req.GetPlaceholderGroup())
 	assert.Equal(t, sub.GetFieldId(), req.GetFieldId())
-	assert.Equal(t, common.PkFilterNoPkFilter, req.GetPkFilter())
+	assert.Equal(t, common.PkFilterHasPkFilter, req.GetPkFilter())
 
 	req.PlaceholderGroup = []byte{20}
 	req.SerializedExprPlan = []byte{21}

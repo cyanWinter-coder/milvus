@@ -3,7 +3,6 @@ package viewquery
 import (
 	"google.golang.org/protobuf/proto"
 
-	"github.com/milvus-io/milvus/pkg/v3/common"
 	"github.com/milvus-io/milvus/pkg/v3/proto/internalpb"
 	"github.com/milvus-io/milvus/pkg/v3/util/merr"
 )
@@ -70,7 +69,7 @@ func BuildSubSearchRequest(parent *internalpb.SearchRequest, sub *internalpb.Sub
 		FieldId:                 sub.GetFieldId(),
 		AnalyzerName:            sub.GetAnalyzerName(),
 		SearchType:              sub.GetSearchType(),
-		PkFilter:                common.PkFilterNoPkFilter,
+		PkFilter:                parent.GetPkFilter(),
 	}
 	req.ProtoReflect().SetUnknown(parent.ProtoReflect().GetUnknown())
 	return proto.Clone(req).(*internalpb.SearchRequest), nil

@@ -59,6 +59,23 @@ host node's `taskmodel.QueryRunner` (`Proxy.ExecuteQuery` in the root package).
    of small shared helpers (name/partition-tag validation, guarantee-ts parsing,
    namespace routing), so DQL does not depend on the root package.
 
+## Hybrid search filtering
+
+`HybridSearchRequest` has no top-level expression. Each entry in
+`HybridSearchRequest.requests` owns its `dsl`/`expr_template_values`; Proxy
+parses those predicates into the per-sub-search query plan, and QueryNode applies
+them before ANN candidate selection. This keeps scalar filtering, PK-pruning
+hints, MVCC delete visibility, and the request-level guarantee timestamp on the
+same read snapshot for every branch of the hybrid search.
+
+The request-level `limit`, `offset`, `consistency_level`, and
+`guarantee_timestamp` stay on the parent. Do not copy a parent-level filter or
+pagination into individual sub-requests; pagination is applied once after
+fusion, while filtering is intentionally per retrieval branch.
+
+See [hybrid-search-filter-pushdown.md](../../../docs/design-docs/design_docs/20261117-hybrid-search-filter-pushdown.md)
+for invariants, test commands, and known limitations.
+
 ## Architecture
 
 ```
